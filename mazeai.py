@@ -1,17 +1,15 @@
 import random
 import os
+import time
 import numpy as np
 import torch
-import torch.nn as nn
-import torch.optim as optim
-import torch.nn.functional as F
-from collections import deque
-import time
-from datetime import timedelta
 
 MAZE_HEIGHT = 21
 MAZE_WIDTH = 41
 
+# Position
+char_pos = [0, 0]  # Starts at the entrance
+level_times = []  # List to record time taken for each level
 
 # Maze generation using DFS algorithm
 def generate_maze(height, width):
@@ -19,10 +17,10 @@ def generate_maze(height, width):
     stack = []
 
     # Create an entrance and exit
-    entrance = random.randint(1, width - 2)
-    exit = random.randint(1, width - 2)
+    entrance = random.randint(1, width-2)
+    exit = random.randint(1, width-2)
     maze[0][entrance] = 0
-    maze[height - 1][exit] = 0
+    maze[height-1][exit] = 0
 
     # DFS algorithm
     def dfs(x, y):
@@ -49,154 +47,126 @@ def generate_maze(height, width):
 
     return maze, (end_x, end_y)
 
-
-# Convert maze characters to numerical values
-def convert_maze_to_state(maze, char_pos):
-    state = np.zeros((len(maze), len(maze[0])), dtype=int)
-    for i, row in enumerate(maze):
-        for j, cell in enumerate(row):
+# Print maze
+def print_maze(maze, char_pos, level):
+    os.system('clear') if os.name == 'posix' else os.system('cls')
+    
+    # ASCII pattern
+    pattern = "###" * (MAZE_WIDTH // 3)
+    print(pattern)
+    print(f"{' ' * ((MAZE_WIDTH - len(f'Level {level}')) // 2)}Level {level}")
+    print(pattern)
+    
+    for i in range(len(maze)):
+        for j in range(len(maze[0])):
             if [i, j] == char_pos:
-                state[i][j] = 2  # Agent position
-            elif cell == 0:
-                state[i][j] = 0  # Open space
-            elif cell == '*':
-                state[i][j] = 3  # Goal
+                print("P", end="")
+            elif maze[i][j] == 0:
+                print(" ", end="")
+            elif maze[i][j] == '*':
+                print("*", end="")
             else:
-                state[i][j] = 1  # Wall
-    return state
+                print("█", end="")
+        print()
+    
+    print(pattern)
+    print(f"{' ' * ((MAZE_WIDTH - len(f'Level {level}')) // 2)}Level {level}")
+    print(pattern)
 
+# Check if a position is within the maze boundaries
+def is_within_bounds(pos, maze_height, maze_width):
+    return 0 <= pos[0] < maze_height and 0 <= pos[1] < maze_width
 
-# Maze environment class with refresh level functionality
-class MazeEnv:
-    def __init__(self, height, width):
-        self.height = height
-        self.width = width
-        self.maze, self.end_pos = generate_maze(height, width)
-        self.char_pos = [0, self.maze[0].index(0)]
-        self.saved_maze = None  # For storing the current maze for refresh
+# Check if the character has reached the end point
+def is_end_point(char_pos, end_pos):
+    return char_pos == list(end_pos)
 
-    def reset(self, refresh=False):
-        if refresh and self.saved_maze is not None:
-            self.maze = [row[:] for row in self.saved_maze]  # Restore maze
-        else:
-            self.maze, self.end_pos = generate_maze(self.height, self.width)
-            self.saved_maze = [row[:] for row in self.maze]  # Save the current maze
-        self.char_pos = [0, self.maze[0].index(0)]
-        return convert_maze_to_state(self.maze, self.char_pos)
+# A* Pathfinding Algorithm
+def a_star(maze, start, end):
+    open_set = {tuple(start)}
+    came_from = {}
+    g_score = {tuple(start): 0}
+    f_score = {tuple(start): heuristic(start, end)}
 
-    def step(self, action):
-        move_map = {'w': (-1, 0), 'a': (0, -1), 's': (1, 0), 'd': (0, 1)}
-        if action in move_map:
-            new_pos = [self.char_pos[0] + move_map[action][0], self.char_pos[1] + move_map[action][1]]
-            if self.is_within_bounds(new_pos) and self.maze[new_pos[0]][new_pos[1]] in [0, '*']:
-                self.char_pos = new_pos
-                if self.is_end_point():
-                    return convert_maze_to_state(self.maze, self.char_pos), 1, True  # Reward, Done
-                return convert_maze_to_state(self.maze, self.char_pos), -0.01, False  # Small penalty for each step
-        return convert_maze_to_state(self.maze, self.char_pos), -0.1, False  # Penalty for invalid move
+    while open_set:
+        current = min(open_set, key=lambda pos: f_score.get(pos, float('inf')))
+        
+        if current == tuple(end):
+            return reconstruct_path(came_from, current)
 
-    def is_within_bounds(self, pos):
-        return 0 <= pos[0] < self.height and 0 <= pos[1] < self.width
+        open_set.remove(current)
+        for neighbor in get_neighbors(current, maze):
+            tentative_g_score = g_score[current] + 1
+            
+            if tentative_g_score < g_score.get(neighbor, float('inf')):
+                came_from[neighbor] = current
+                g_score[neighbor] = tentative_g_score
+                f_score[neighbor] = tentative_g_score + heuristic(neighbor, end)
+                open_set.add(neighbor)
 
-    def is_end_point(self):
-        return self.char_pos == list(self.end_pos)
+    return []
 
+def heuristic(a, b):
+    return abs(a[0] - b[0]) + abs(a[1] - b[1])
 
-# Neural Network for DQN
-class DQN(nn.Module):
-    def __init__(self, input_dim, output_dim):
-        super(DQN, self).__init__()
-        self.fc1 = nn.Linear(input_dim, 128)
-        self.fc2 = nn.Linear(128, 128)
-        self.fc3 = nn.Linear(128, output_dim)
+def get_neighbors(pos, maze):
+    neighbors = []
+    directions = [(0, 1), (1, 0), (0, -1), (-1, 0)]
+    for dx, dy in directions:
+        neighbor = (pos[0] + dx, pos[1] + dy)
+        if is_within_bounds(neighbor, MAZE_HEIGHT, MAZE_WIDTH) and maze[neighbor[0]][neighbor[1]] in [0, '*']:
+            neighbors.append(neighbor)
+    return neighbors
 
-    def forward(self, x):
-        x = torch.relu(self.fc1(x))
-        x = torch.relu(self.fc2(x))
-        x = self.fc3(x)
-        return x
+def reconstruct_path(came_from, current):
+    total_path = [current]
+    while current in came_from:
+        current = came_from[current]
+        total_path.append(current)
+    return total_path[::-1]
 
+# Enhanced Progress Bar with Tibetan Symbols
+def progress_bar(iteration, total, length=40):
+    percent = (iteration / total)
+    bar_length = int(length * percent)
+    bar = '༄' * bar_length + '─' * (length - bar_length)  # Tibetan symbol for a more fancy look
+    print(f'\r|{bar}| {percent:.2%}', end='')
 
-# Progress bar with time estimation
-def progress_bar(episode, total_episodes, start_time, bar_length=30):
-    progress = episode / total_episodes
-    elapsed_time = time.time() - start_time
-    time_str = f"Elapsed: {str(timedelta(seconds=int(elapsed_time)))}"
-    return f"\rLevel {episode + 1}/{total_episodes} | {time_str}"
+# Main game loop with AI
+def main():
+    level = 1
+    while True:
+        maze, end_pos = generate_maze(MAZE_HEIGHT, MAZE_WIDTH)
 
+        # Set character position to the entrance
+        char_pos[0] = 0
+        char_pos[1] = maze[0].index(0)
 
-# Training function with progress bar and refresh
-def train(env, model, episodes, gamma=0.99, epsilon=1.0, epsilon_min=0.01, epsilon_decay=0.995, batch_size=64):
-    optimizer = optim.Adam(model.parameters())
-    memory = deque(maxlen=2000)
-    action_map = {'w': 0, 'a': 1, 's': 2, 'd': 3}
+        start_time = time.time()  # Start the timer for the level
 
-    start_time = time.time()
-    last_update_time = start_time
-    for episode in range(episodes):
-        state = env.reset()  # Start with a new maze for each episode
-        state = torch.FloatTensor(state.flatten()).unsqueeze(0)  # Convert to Tensor
-        total_reward = 0
+        while True:
+            print_maze(maze, char_pos, level)
+            path = a_star(maze, char_pos, end_pos)
 
-        for t in range(1000):
-            # Check if it's time to update progress (every minute)
-            if time.time() - last_update_time >= 60:
-                print(progress_bar(episode + 1, episodes, start_time), end='')
-                last_update_time = time.time()
+            if not path:
+                print("No path found, refreshing maze...")
+                time.sleep(1)
+                break  # Break out of the inner loop to regenerate the maze
 
-            # Select action: exploration vs exploitation
-            if random.random() < epsilon:
-                action = random.choice(['w', 'a', 's', 'd'])
-            else:
-                with torch.no_grad():
-                    q_values = model(state)
-                    action = ['w', 'a', 's', 'd'][q_values.argmax().item()]
+            for step in path[1:]:  # Skip the starting position
+                char_pos[:] = list(step)
+                print_maze(maze, char_pos, level)
+                progress_bar(path.index(step), len(path))
+                time.sleep(0.1)  # Simulate time taken for each step
 
-            # Step in the environment
-            next_state, reward, done = env.step(action)
-            next_state = torch.FloatTensor(next_state.flatten()).unsqueeze(0)
-            memory.append((state, action_map[action], reward, next_state, done))
-            state = next_state
-            total_reward += reward
-
-            if done:
-                print(f"\nLevel {episode + 1}/{episodes}, Total Reward: {total_reward}")
+            if is_end_point(char_pos, end_pos):
+                end_time = time.time()  # End the timer for the level
+                level_time = end_time - start_time
+                level_times.append(level_time)  # Record the time taken for this level
+                print(f"\nLevel {level} complete in {level_time:.2f} seconds!")
+                time.sleep(1)  # Auto wait before moving to the next level
+                level += 1
                 break
 
-            # Training the model if enough memory is available
-            if len(memory) >= batch_size:
-                batch = random.sample(memory, batch_size)
-                states, actions, rewards, next_states, dones = zip(*batch)
-
-                states = torch.cat(states)
-                next_states = torch.cat(next_states)
-                rewards = torch.FloatTensor(rewards)
-                dones = torch.FloatTensor(dones)
-
-                q_values = model(states)
-                next_q_values = model(next_states)
-
-                q_target = rewards + gamma * next_q_values.max(1)[0] * (1 - dones)
-                q_target = q_target.unsqueeze(1)
-
-                action_indices = torch.LongTensor(actions)
-                loss = F.mse_loss(q_values.gather(1, action_indices.unsqueeze(1)), q_target)
-
-                optimizer.zero_grad()
-                loss.backward()
-                optimizer.step()
-
-        # Update epsilon decay
-        if epsilon > epsilon_min:
-            epsilon *= epsilon_decay
-
-    # Save model after training
-    torch.save(model.state_dict(), 'dqn_model.pth')
-
-
-# Run training
-env = MazeEnv(MAZE_HEIGHT, MAZE_WIDTH)
-input_dim = MAZE_HEIGHT * MAZE_WIDTH
-output_dim = 4  # Number of actions
-model = DQN(input_dim, output_dim)
-train(env, model, episodes=100)
+if __name__ == "__main__":
+    main()
