@@ -44,8 +44,15 @@ def generate_maze(height, width):
     return maze, (end_x, end_y)
 
 # Print maze
-def print_maze(maze, char_pos):
+def print_maze(maze, char_pos, level):
     os.system('clear') if os.name == 'posix' else os.system('cls')
+    
+    # ASCII pattern
+    pattern = "###" * (MAZE_WIDTH // 3)
+    print(pattern)
+    print(f"{' ' * ((MAZE_WIDTH - len(f'Level {level}')) // 2)}Level {level}")
+    print(pattern)
+    
     for i in range(len(maze)):
         for j in range(len(maze[0])):
             if [i, j] == char_pos:
@@ -57,6 +64,10 @@ def print_maze(maze, char_pos):
             else:
                 print("█", end="")
         print()
+    
+    print(pattern)
+    print(f"{' ' * ((MAZE_WIDTH - len(f'Level {level}')) // 2)}Level {level}")
+    print(pattern)
 
 # Check if a position is within the maze boundaries
 def is_within_bounds(pos, maze_height, maze_width):
@@ -77,7 +88,7 @@ def main():
         char_pos[1] = maze[0].index(0)
 
         while True:
-            print_maze(maze, char_pos)
+            print_maze(maze, char_pos, level)
             move = input("Enter WASD to move, R to refresh (Q to quit): ").lower()
             if move == 'q':
                 return
@@ -98,7 +109,7 @@ def main():
                     char_pos[:] = new_char_pos
 
                 if is_end_point(char_pos, end_pos):
-                    print_maze(maze, char_pos)
+                    print_maze(maze, char_pos, level)
                     print(f"Level {level} complete!")
                     input("Press Enter to continue to the next level...")
                     level += 1
