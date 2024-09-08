@@ -157,7 +157,7 @@ def main():
                 char_pos[:] = list(step)
                 print_maze(maze, char_pos, level)
                 progress_bar(path.index(step), len(path))
-                time.sleep(0.1)  # Simulate time taken for each step
+                time.sleep(0.03)  # Reduced time to simulate faster input key speed
 
             if is_end_point(char_pos, end_pos):
                 end_time = time.time()  # End the timer for the level
