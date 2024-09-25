@@ -3,6 +3,7 @@ import os
 import time
 import numpy as np
 import torch
+import threading
 
 MAZE_HEIGHT = 21
 MAZE_WIDTH = 41
@@ -10,6 +11,12 @@ MAZE_WIDTH = 41
 # Position
 char_pos = [0, 0]  # Starts at the entrance
 level_times = []  # List to record time taken for each level
+stop_event = threading.Event()
+
+# Timer function
+def timer(seconds):
+    time.sleep(seconds)
+    stop_event.set()
 
 # Maze generation using DFS algorithm
 def generate_maze(height, width):
@@ -134,8 +141,12 @@ def progress_bar(iteration, total, length=40):
 
 # Main game loop with AI
 def main():
+    duration = int(input("Enter the duration (in seconds) for the AI to run: "))
+    timer_thread = threading.Thread(target=timer, args=(duration,))
+    timer_thread.start()
+
     level = 1
-    while True:
+    while not stop_event.is_set():
         maze, end_pos = generate_maze(MAZE_HEIGHT, MAZE_WIDTH)
 
         # Set character position to the entrance
@@ -144,7 +155,7 @@ def main():
 
         start_time = time.time()  # Start the timer for the level
 
-        while True:
+        while not stop_event.is_set():
             print_maze(maze, char_pos, level)
             path = a_star(maze, char_pos, end_pos)
 
